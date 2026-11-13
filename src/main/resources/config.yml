@@ -1,0 +1,9 @@
+# Server-side bridge must be installed on every backend running ServerToolkit.
+channel: allinone:sync
+storage-file: players.yml
+# Only accept messages from servers listed here (must match BungeeCord server names).
+allowed-servers:
+  - lobby
+  - survival
+# Set true only after the ServerToolkit bridge is installed on every backend.
+bridge-enabled: false
