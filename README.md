@@ -24,7 +24,7 @@ In `plugins/AllInOneBungee/config.yml`, the `allowed-servers` names must exactly
 ## Installation
 
 1. Build with `mvn clean package` using Java 25.
-2. Install `AllInOneBungee-1.1.0.jar` in the proxy's `plugins/` folder.
+2. Install `allinonebungee-1.1.0.jar` in the proxy's `plugins/` folder.
 3. Install ServerToolkit 1.14.0 on both the Lobby and Survival Paper backends.
 4. Restart the proxy and both Paper servers.
 5. Check the proxy log for `Rank and balance synchronization is ACTIVE`.
