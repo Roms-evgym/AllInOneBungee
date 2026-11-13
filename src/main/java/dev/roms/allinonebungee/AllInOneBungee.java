@@ -1,28 +1,23 @@
 package dev.roms.allinonebungee;
 
-import net.md_5.bungee.api.plugin.Plugin;
-import net.md_5.bungee.api.config.Configuration;
-import net.md_5.bungee.api.connection.PluginMessage;
-import net.md_5.bungee.api.connection.ProxiedPlayer;
 import net.md_5.bungee.api.event.PluginMessageEvent;
-import net.md_5.bungee.api.event.PostLoginEvent;
-import net.md_5.bungee.api.event.ServerConnectedEvent;
 import net.md_5.bungee.api.plugin.Listener;
+import net.md_5.bungee.api.plugin.Plugin;
+import net.md_5.bungee.config.Configuration;
+import net.md_5.bungee.config.ConfigurationProvider;
+import net.md_5.bungee.config.YamlConfiguration;
 import net.md_5.bungee.event.EventHandler;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.UUID;
 import java.util.logging.Level;
 
 public final class AllInOneBungee extends Plugin implements Listener {
     public static final String DEFAULT_CHANNEL = "allinone:sync";
     private PlayerDataStore dataStore;
     private String channel;
-    private Set<String> allowedServers;
 
     @Override
     public void onEnable() {
@@ -30,20 +25,30 @@ public final class AllInOneBungee extends Plugin implements Listener {
             getLogger().severe("Could not create plugin data folder.");
             return;
         }
-        saveDefaultConfig();
-        Configuration config = getConfig();
-        channel = config.getString("channel", DEFAULT_CHANNEL);
-        allowedServers = new HashSet<>(config.getStringList("allowed-servers"));
+
+        File configFile = new File(getDataFolder(), "config.yml");
         try {
+            if (!configFile.exists()) {
+                Configuration defaults = new Configuration();
+                defaults.set("channel", DEFAULT_CHANNEL);
+                defaults.set("storage-file", "players.yml");
+                defaults.set("allowed-servers", java.util.List.of("lobby", "survival"));
+                defaults.set("bridge-enabled", false);
+                ConfigurationProvider.getProvider(YamlConfiguration.class).save(defaults, configFile);
+            }
+            Configuration config = ConfigurationProvider.getProvider(YamlConfiguration.class).load(configFile);
+            channel = config.getString("channel", DEFAULT_CHANNEL);
+            Set<String> allowedServers = new HashSet<>(config.getStringList("allowed-servers"));
             dataStore = new PlayerDataStore(new File(getDataFolder(),
                     config.getString("storage-file", "players.yml")));
+
+            getProxy().registerChannel(channel);
+            getProxy().getPluginManager().registerListener(this, this);
+            getLogger().info("Loaded local player data. Approved backend servers: " + allowedServers);
+            getLogger().warning("Sync protocol is not activated until the matching ServerToolkit bridge is installed.");
         } catch (IOException ex) {
-            getLogger().log(Level.SEVERE, "Could not load players.yml; plugin disabled.", ex);
-            return;
+            getLogger().log(Level.SEVERE, "Could not initialize AllInOneBungee.", ex);
         }
-        getProxy().registerChannel(channel);
-        getProxy().getPluginManager().registerListener(this, this);
-        getLogger().info("AllInOneBungee enabled. Local player data: " + dataStore.getFile().getName());
     }
 
     @Override
@@ -57,27 +62,10 @@ public final class AllInOneBungee extends Plugin implements Listener {
 
     @EventHandler
     public void onPluginMessage(PluginMessageEvent event) {
-        if (!channel.equals(event.getTag()) || !(event.getSender() instanceof net.md_5.bungee.api.connection.Server)) return;
-        String serverName = ((net.md_5.bungee.api.connection.Server) event.getSender()).getInfo().getName();
-        if (!allowedServers.contains(serverName)) {
-            getLogger().warning("Ignored sync message from unapproved server: " + serverName);
-            event.setCancelled(true);
-            return;
-        }
-        // The versioned binary protocol and authenticated backend identity are implemented
-        // together with the ServerToolkit bridge; do not accept arbitrary payloads here.
+        if (channel == null || !channel.equals(event.getTag())) return;
+        // Intentionally reject messages until the matching backend bridge and its
+        // versioned protocol are implemented. This prevents untrusted payloads changing data.
         event.setCancelled(true);
-    }
-
-    @EventHandler
-    public void onPostLogin(PostLoginEvent event) {
-        // Data is loaded from local YAML at proxy startup. The backend bridge requests the
-        // authoritative snapshot after the player joins a backend server.
-    }
-
-    @EventHandler
-    public void onServerConnected(ServerConnectedEvent event) {
-        // Snapshot delivery is added with the matching ServerToolkit bridge protocol.
     }
 
     public PlayerDataStore getDataStore() { return dataStore; }
