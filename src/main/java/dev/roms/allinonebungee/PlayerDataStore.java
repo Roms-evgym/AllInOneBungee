@@ -14,15 +14,18 @@ public final class PlayerDataStore {
 
     public PlayerDataStore(File file) throws IOException {
         this.file = file;
-        if (file.exists()) data = ConfigurationProvider.getProvider(YamlConfiguration.class).load(file);
-        else {
+        if (file.exists()) {
+            data = ConfigurationProvider.getProvider(YamlConfiguration.class).load(file);
+        } else {
             data = new Configuration();
-            save();
         }
+        if (data.getSection("players") == null) data.set("players", new Configuration());
+        save();
     }
 
     public synchronized PlayerRecord get(UUID uuid) {
-        Configuration player = data.getSection("players").getSection(uuid.toString());
+        Configuration players = data.getSection("players");
+        Configuration player = players == null ? null : players.getSection(uuid.toString());
         if (player == null) return null;
         return new PlayerRecord(player.getString("rank", "default"),
                 player.getDouble("balance", 0.0D));
@@ -31,8 +34,8 @@ public final class PlayerDataStore {
     public synchronized void set(UUID uuid, PlayerRecord record) {
         Configuration players = data.getSection("players");
         if (players == null) {
-            data.set("players", new Configuration());
-            players = data.getSection("players");
+            players = new Configuration();
+            data.set("players", players);
         }
         Configuration player = new Configuration();
         player.set("rank", record.rank());
