@@ -1,0 +1,5 @@
+name: AllInOneBungee
+main: dev.roms.allinonebungee.AllInOneBungee
+version: 1.0.0
+author: Roms-evgym
+description: Synchronizes ServerToolkit ranks and balances across BungeeCord servers.
