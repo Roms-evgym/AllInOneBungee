@@ -28,7 +28,6 @@ public final class AllInOneBungee extends Plugin implements Listener {
     private PlayerDataStore dataStore;
     private String channel;
     private Set<String> allowedServers = Set.of();
-    private boolean bridgeEnabled;
 
     @Override
     public void onEnable() {
@@ -44,7 +43,6 @@ public final class AllInOneBungee extends Plugin implements Listener {
                 defaults.set("channel", DEFAULT_CHANNEL);
                 defaults.set("storage-file", "players.yml");
                 defaults.set("allowed-servers", java.util.List.of("lobby", "survival"));
-                defaults.set("bridge-enabled", true);
                 ConfigurationProvider.getProvider(YamlConfiguration.class).save(defaults, configFile);
             }
             Configuration config = ConfigurationProvider.getProvider(YamlConfiguration.class).load(configFile);
@@ -54,15 +52,16 @@ public final class AllInOneBungee extends Plugin implements Listener {
                 servers.add(server.toLowerCase(Locale.ROOT));
             }
             allowedServers = Set.copyOf(servers);
-            bridgeEnabled = config.getBoolean("bridge-enabled", true);
             dataStore = new PlayerDataStore(new File(getDataFolder(),
                     config.getString("storage-file", "players.yml")));
 
             getProxy().registerChannel(channel);
             getProxy().getPluginManager().registerListener(this, this);
-            getLogger().info("Loaded local player data. Approved backend servers: " + allowedServers);
-            if (bridgeEnabled) getLogger().info("Rank and balance synchronization is active.");
-            else getLogger().warning("Sync is disabled. Set bridge-enabled: true in config.yml.");
+            getLogger().info("Rank and balance synchronization is ACTIVE on " + channel
+                    + ". Approved backend servers: " + allowedServers);
+            if (allowedServers.isEmpty()) {
+                getLogger().severe("No allowed backend servers configured; all sync packets will be rejected.");
+            }
         } catch (IOException ex) {
             getLogger().log(Level.SEVERE, "Could not initialize AllInOneBungee.", ex);
         }
@@ -81,9 +80,11 @@ public final class AllInOneBungee extends Plugin implements Listener {
     public void onPluginMessage(PluginMessageEvent event) {
         if (channel == null || !channel.equals(event.getTag())) return;
         event.setCancelled(true);
-        if (!bridgeEnabled || !(event.getSender() instanceof Server source)
+
+        if (!(event.getSender() instanceof Server source)
                 || !(event.getReceiver() instanceof ProxiedPlayer player)) return;
-        if (!allowedServers.contains(source.getInfo().getName().toLowerCase(Locale.ROOT))) {
+        String sourceName = source.getInfo().getName().toLowerCase(Locale.ROOT);
+        if (!allowedServers.contains(sourceName)) {
             getLogger().warning("Rejected sync message from unapproved server: " + source.getInfo().getName());
             return;
         }
@@ -107,10 +108,13 @@ public final class AllInOneBungee extends Plugin implements Listener {
                 if (record == null) {
                     record = new PlayerRecord(rank, balance.doubleValue());
                     dataStore.set(uuid, record);
+                    getLogger().info("Registered first player data for " + uuid + " from " + sourceName);
                 }
             } else if ("UPDATE".equals(operation)) {
                 record = new PlayerRecord(rank, balance.doubleValue());
                 dataStore.set(uuid, record);
+                getLogger().info("Updated player data for " + uuid + " from " + sourceName
+                        + " (rank " + rank + ").");
             } else {
                 return;
             }
