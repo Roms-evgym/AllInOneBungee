@@ -4,4 +4,3 @@ storage-file: players.yml
 allowed-servers:
   - lobby
   - survival
-bridge-enabled: true
