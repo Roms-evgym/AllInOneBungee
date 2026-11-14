@@ -4,7 +4,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>dev.roms</groupId>
   <artifactId>allinonebungee</artifactId>
-  <version>1.1.0</version>
+  <version>1.1.1</version>
   <name>AllInOneBungee</name>
   <properties>
     <maven.compiler.release>25</maven.compiler.release>
@@ -27,9 +27,7 @@
   <build>
     <plugins>
       <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.13.0</version>
+        <groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version>
         <configuration><release>25</release></configuration>
       </plugin>
     </plugins>
