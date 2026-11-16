@@ -162,7 +162,7 @@ public final class AllInOneBungee extends Plugin implements Listener {
 
     private final class SyncCommand extends Command {
         private SyncCommand() {
-            super("allinoneproxy", "allinoneproxy.sync");
+            super("allinoneproxy", "allinoneproxy.sync", "allinoneproy");
         }
 
         @Override
@@ -171,7 +171,7 @@ public final class AllInOneBungee extends Plugin implements Listener {
                 sender.sendMessage(new TextComponent("§cDafür hast du keine Rechte."));
                 return;
             }
-            if (args.length != 4 || !args[0].equalsIgnoreCase("sync")
+            if (args.length != 4 || !(args[0].equalsIgnoreCase("sync") || args[0].equalsIgnoreCase("synch"))
                     || !args[1].equalsIgnoreCase("all") || !args[2].equalsIgnoreCase("from")) {
                 sender.sendMessage(new TextComponent("§eNutzung: /allinoneproxy sync all from <Server>"));
                 return;
