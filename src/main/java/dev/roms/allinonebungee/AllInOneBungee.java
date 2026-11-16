@@ -2,6 +2,10 @@ package dev.roms.allinonebungee;
 
 import net.md_5.bungee.api.connection.ProxiedPlayer;
 import net.md_5.bungee.api.connection.Server;
+import net.md_5.bungee.api.config.ServerInfo;
+import net.md_5.bungee.api.CommandSender;
+import net.md_5.bungee.api.chat.TextComponent;
+import net.md_5.bungee.api.plugin.Command;
 import net.md_5.bungee.api.event.PluginMessageEvent;
 import net.md_5.bungee.api.event.ServerConnectedEvent;
 import net.md_5.bungee.api.plugin.Listener;
@@ -58,6 +62,7 @@ public final class AllInOneBungee extends Plugin implements Listener {
 
             getProxy().registerChannel(channel);
             getProxy().getPluginManager().registerListener(this, this);
+            getProxy().getPluginManager().registerCommand(this, new SyncCommand());
             getLogger().info("Rank and balance synchronization is ACTIVE on " + channel
                     + ". Approved backend servers: " + allowedServers);
             if (allowedServers.isEmpty()) {
@@ -152,6 +157,56 @@ public final class AllInOneBungee extends Plugin implements Listener {
             targetServer.sendData(channel, bytes.toByteArray());
         } catch (IOException ex) {
             getLogger().log(Level.WARNING, "Could not send synchronized player data.", ex);
+        }
+    }
+
+    private final class SyncCommand extends Command {
+        private SyncCommand() {
+            super("allinoneproxy", "allinoneproxy.sync");
+        }
+
+        @Override
+        public void execute(CommandSender sender, String[] args) {
+            if (!sender.hasPermission("allinoneproxy.sync")) {
+                sender.sendMessage(new TextComponent("§cDafür hast du keine Rechte."));
+                return;
+            }
+            if (args.length != 4 || !args[0].equalsIgnoreCase("sync")
+                    || !args[1].equalsIgnoreCase("all") || !args[2].equalsIgnoreCase("from")) {
+                sender.sendMessage(new TextComponent("§eNutzung: /allinoneproxy sync all from <Server>"));
+                return;
+            }
+            String serverName = args[3];
+            if (!allowedServers.contains(serverName.toLowerCase(Locale.ROOT))) {
+                sender.sendMessage(new TextComponent("§cDieser Server ist nicht in allowed-servers eingetragen."));
+                return;
+            }
+            ServerInfo target = getProxy().getServerInfo(serverName);
+            if (target == null) {
+                sender.sendMessage(new TextComponent("§cServer '" + serverName + "' wurde im Proxy nicht gefunden."));
+                return;
+            }
+            if (target.getPlayers().isEmpty()) {
+                sender.sendMessage(new TextComponent("§cAuf " + target.getName() + " ist gerade niemand online."));
+                return;
+            }
+            try {
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                DataOutputStream out = new DataOutputStream(bytes);
+                out.writeUTF("REQUEST_ALL");
+                out.flush();
+                boolean sent = target.sendData(channel, bytes.toByteArray(), false);
+                if (!sent) {
+                    sender.sendMessage(new TextComponent("§cAnfrage konnte nicht an " + target.getName() + " gesendet werden."));
+                    return;
+                }
+                sender.sendMessage(new TextComponent("§aVollständige Rang- und Geld-Synchronisierung von "
+                        + target.getName() + " angefordert. Details stehen im Proxy- und Paper-Log."));
+                getLogger().info(sender.getName() + " requested full rank/balance sync from " + target.getName() + ".");
+            } catch (IOException ex) {
+                sender.sendMessage(new TextComponent("§cSync-Anfrage konnte nicht erstellt werden."));
+                getLogger().log(Level.WARNING, "Could not create full sync request.", ex);
+            }
         }
     }
 
