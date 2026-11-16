@@ -1,4 +1,4 @@
-# AllInOneBungee 1.1.2
+# AllInOneBungee 1.1.3
 
 BungeeCord proxy plugin for synchronizing ServerToolkit ranks and balances across the network.
 
@@ -6,7 +6,7 @@ BungeeCord proxy plugin for synchronizing ServerToolkit ranks and balances acros
 
 - Java 25
 - BungeeCord proxy
-- ServerToolkit 1.14.1 on every backend that should sync
+- ServerToolkit 1.14.2 on every backend that should sync
 
 ## How it works
 
@@ -24,9 +24,13 @@ In `plugins/AllInOneBungee/config.yml`, the `allowed-servers` names must exactly
 ## Installation
 
 1. Build with `mvn clean package` using Java 25.
-2. Install `allinonebungee-1.1.2.jar` in the proxy's `plugins/` folder.
+2. Install `allinonebungee-1.1.3.jar` in the proxy's `plugins/` folder.
 3. Install ServerToolkit 1.14.1 on both the Lobby and Survival Paper backends.
 4. Restart the proxy and both Paper servers.
 5. Check the proxy log for `Rank and balance synchronization is ACTIVE`.
 
 The proxy plugin and the Paper bridge must both be installed. Updating only one side is not sufficient.
+
+## Force a full sync
+
+Run `/allinoneproxy sync all from survival` in the proxy console or as a player with `allinoneproxy.sync`. The named backend publishes the rank and balance of every player currently online there to the proxy store.
