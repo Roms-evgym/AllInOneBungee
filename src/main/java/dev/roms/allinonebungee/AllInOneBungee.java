@@ -3,6 +3,7 @@ package dev.roms.allinonebungee;
 import net.md_5.bungee.api.connection.ProxiedPlayer;
 import net.md_5.bungee.api.connection.Server;
 import net.md_5.bungee.api.event.PluginMessageEvent;
+import net.md_5.bungee.api.event.ServerConnectedEvent;
 import net.md_5.bungee.api.plugin.Listener;
 import net.md_5.bungee.api.plugin.Plugin;
 import net.md_5.bungee.config.Configuration;
@@ -118,13 +119,28 @@ public final class AllInOneBungee extends Plugin implements Listener {
             } else {
                 return;
             }
-            sendSync(player, uuid, record);
+            // Deliver the response to the backend connection, not the player's client.
+            sendSync(source, uuid, record);
         } catch (Exception ex) {
             getLogger().log(Level.WARNING, "Rejected malformed sync packet.", ex);
         }
     }
 
-    private void sendSync(ProxiedPlayer player, UUID uuid, PlayerRecord record) {
+    @EventHandler
+    public void onServerConnected(ServerConnectedEvent event) {
+        if (dataStore == null || channel == null) return;
+        PlayerRecord record = dataStore.get(event.getPlayer().getUniqueId());
+        if (record == null) {
+            getLogger().fine("No saved network data yet for " + event.getPlayer().getUniqueId()
+                    + "; waiting for the backend HELLO packet.");
+            return;
+        }
+        sendSync(event.getServer(), event.getPlayer().getUniqueId(), record);
+        getLogger().info("Sent saved rank and balance to " + event.getPlayer().getName()
+                + " on " + event.getServer().getInfo().getName() + ".");
+    }
+
+    private void sendSync(Server targetServer, UUID uuid, PlayerRecord record) {
         try {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             DataOutputStream out = new DataOutputStream(bytes);
@@ -133,7 +149,7 @@ public final class AllInOneBungee extends Plugin implements Listener {
             out.writeUTF(record.rank());
             out.writeUTF(BigDecimal.valueOf(record.balance()).setScale(2, java.math.RoundingMode.HALF_UP).toPlainString());
             out.flush();
-            player.sendData(channel, bytes.toByteArray());
+            targetServer.sendData(channel, bytes.toByteArray());
         } catch (IOException ex) {
             getLogger().log(Level.WARNING, "Could not send synchronized player data.", ex);
         }
