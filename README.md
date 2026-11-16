@@ -1,4 +1,4 @@
-# AllInOneBungee 1.1.3
+# AllInOneBungee 1.1.4
 
 BungeeCord proxy plugin for synchronizing ServerToolkit ranks and balances across the network.
 
