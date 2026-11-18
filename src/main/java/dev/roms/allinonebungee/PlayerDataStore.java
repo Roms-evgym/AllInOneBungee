@@ -27,8 +27,15 @@ public final class PlayerDataStore {
         Configuration players = data.getSection("players");
         Configuration player = players == null ? null : players.getSection(uuid.toString());
         if (player == null) return null;
-        return new PlayerRecord(player.getString("rank", "default"),
-                player.getDouble("balance", 0.0D));
+        String rank = player.getString("rank", "member");
+        // Migrate legacy proxy records that used "default"; ServerToolkit's default rank is "member".
+        if (rank == null || rank.isBlank() || rank.equalsIgnoreCase("default")) {
+            rank = "member";
+            player.set("rank", rank);
+            try { save(); }
+            catch (IOException ex) { throw new IllegalStateException("Could not migrate player rank " + uuid, ex); }
+        }
+        return new PlayerRecord(rank, player.getDouble("balance", 0.0D));
     }
 
     public synchronized void set(UUID uuid, PlayerRecord record) {
