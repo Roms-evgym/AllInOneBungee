@@ -98,6 +98,17 @@ public final class AllInOneBungee extends Plugin implements Listener {
 
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(event.getData()))) {
             String operation = in.readUTF();
+            // REQUEST_ALL is a control packet with no player payload. Paper answers
+            // by publishing one UPDATE packet per online player through that player's connection.
+            if ("REQUEST_ALL".equals(operation)) {
+                if (in.available() != 0) {
+                    getLogger().warning("Rejected malformed full-sync request from " + sourceName);
+                } else {
+                    getLogger().info("Accepted full-sync request from " + sourceName
+                            + "; waiting for the backend to publish its online players.");
+                }
+                return;
+            }
             UUID uuid = UUID.fromString(in.readUTF());
             String rank = in.readUTF();
             BigDecimal balance = new BigDecimal(in.readUTF());
