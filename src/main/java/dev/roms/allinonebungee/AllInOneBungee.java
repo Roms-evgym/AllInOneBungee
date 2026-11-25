@@ -14,7 +14,6 @@ import net.md_5.bungee.config.Configuration;
 import net.md_5.bungee.config.ConfigurationProvider;
 import net.md_5.bungee.config.YamlConfiguration;
 import net.md_5.bungee.event.EventHandler;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -34,192 +33,136 @@ public final class AllInOneBungee extends Plugin implements Listener {
     private String channel;
     private Set<String> allowedServers = Set.of();
 
-    @Override
-    public void onEnable() {
-        if (!getDataFolder().exists() && !getDataFolder().mkdirs()) {
-            getLogger().severe("Could not create plugin data folder.");
-            return;
-        }
-
+    @Override public void onEnable() {
+        if (!getDataFolder().exists() && !getDataFolder().mkdirs()) { getLogger().severe("Could not create plugin data folder."); return; }
         File configFile = new File(getDataFolder(), "config.yml");
         try {
             if (!configFile.exists()) {
                 Configuration defaults = new Configuration();
-                defaults.set("channel", DEFAULT_CHANNEL);
-                defaults.set("storage-file", "players.yml");
+                defaults.set("channel", DEFAULT_CHANNEL); defaults.set("storage-file", "players.yml");
                 defaults.set("allowed-servers", java.util.List.of("lobby", "survival"));
                 ConfigurationProvider.getProvider(YamlConfiguration.class).save(defaults, configFile);
             }
             Configuration config = ConfigurationProvider.getProvider(YamlConfiguration.class).load(configFile);
             channel = config.getString("channel", DEFAULT_CHANNEL);
             Set<String> servers = new HashSet<>();
-            for (String server : config.getStringList("allowed-servers")) {
-                servers.add(server.toLowerCase(Locale.ROOT));
-            }
+            for (String server : config.getStringList("allowed-servers")) servers.add(server.toLowerCase(Locale.ROOT));
             allowedServers = Set.copyOf(servers);
-            dataStore = new PlayerDataStore(new File(getDataFolder(),
-                    config.getString("storage-file", "players.yml")));
-
+            dataStore = new PlayerDataStore(new File(getDataFolder(), config.getString("storage-file", "players.yml")));
             getProxy().registerChannel(channel);
             getProxy().getPluginManager().registerListener(this, this);
             getProxy().getPluginManager().registerCommand(this, new SyncCommand());
-            getLogger().info("Rank and balance synchronization is ACTIVE on " + channel
-                    + ". Approved backend servers: " + allowedServers);
-            if (allowedServers.isEmpty()) {
-                getLogger().severe("No allowed backend servers configured; all sync packets will be rejected.");
-            }
-        } catch (IOException ex) {
-            getLogger().log(Level.SEVERE, "Could not initialize AllInOneBungee.", ex);
-        }
+            getLogger().info("Rank, balance, bounty and playtime synchronization is ACTIVE on " + channel + ". Approved backend servers: " + allowedServers);
+        } catch (IOException ex) { getLogger().log(Level.SEVERE, "Could not initialize AllInOneBungee.", ex); }
     }
-
-    @Override
-    public void onDisable() {
-        if (dataStore != null) {
-            try { dataStore.save(); }
-            catch (IOException ex) { getLogger().log(Level.SEVERE, "Could not save player data.", ex); }
-        }
+    @Override public void onDisable() {
+        if (dataStore != null) try { dataStore.save(); } catch (IOException ex) { getLogger().log(Level.SEVERE, "Could not save player data.", ex); }
         if (channel != null) getProxy().unregisterChannel(channel);
     }
 
-    @EventHandler
-    public void onPluginMessage(PluginMessageEvent event) {
+    @EventHandler public void onPluginMessage(PluginMessageEvent event) {
         if (channel == null || !channel.equals(event.getTag())) return;
         event.setCancelled(true);
-
-        if (!(event.getSender() instanceof Server source)
-                || !(event.getReceiver() instanceof ProxiedPlayer player)) return;
+        if (!(event.getSender() instanceof Server source) || !(event.getReceiver() instanceof ProxiedPlayer carrier)) return;
         String sourceName = source.getInfo().getName().toLowerCase(Locale.ROOT);
-        if (!allowedServers.contains(sourceName)) {
-            getLogger().warning("Rejected sync message from unapproved server: " + source.getInfo().getName());
-            return;
-        }
-        if (event.getData() == null || event.getData().length > 4096) return;
-
+        if (!allowedServers.contains(sourceName) || event.getData() == null || event.getData().length > 4096) return;
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(event.getData()))) {
             String operation = in.readUTF();
-            // REQUEST_ALL is a control packet with no player payload. Paper answers
-            // by publishing one UPDATE packet per online player through that player's connection.
             if ("REQUEST_ALL".equals(operation)) {
-                if (in.available() != 0) {
-                    getLogger().warning("Rejected malformed full-sync request from " + sourceName);
-                } else {
-                    getLogger().info("Accepted full-sync request from " + sourceName
-                            + "; waiting for the backend to publish its online players.");
-                }
+                if (in.available() == 0) getLogger().info("Accepted full-sync request from " + sourceName);
                 return;
             }
+            if ("PLAYTIME_ADD".equals(operation)) {
+                UUID uuid = UUID.fromString(in.readUTF()); long seconds = in.readLong();
+                if (!uuid.equals(carrier.getUniqueId()) || seconds < 1 || seconds > 3600 || in.available() != 0) return;
+                dataStore.addPlaytime(uuid, seconds);
+                PlayerRecord record = dataStore.get(uuid);
+                sendSync(source, uuid, record);
+                return;
+            }
+            if ("BOUNTY_ADD".equals(operation)) {
+                UUID targetId = UUID.fromString(in.readUTF()); double amount = in.readDouble();
+                if (!Double.isFinite(amount) || amount <= 0 || amount > 1_000_000_000D || in.available() != 0) return;
+                dataStore.addBounty(targetId, amount);
+                syncOnlinePlayer(targetId);
+                carrier.sendMessage(new TextComponent("§aKopfgeld erhöht: §e" + String.format(Locale.US, "%.2f", amount) + " Coins§a."));
+                return;
+            }
+            if ("BOUNTY_CLAIM".equals(operation)) {
+                UUID targetId = UUID.fromString(in.readUTF()); UUID hunterId = UUID.fromString(in.readUTF());
+                if (!hunterId.equals(carrier.getUniqueId()) || in.available() != 0 || targetId.equals(hunterId)) return;
+                double reward = dataStore.claimBounty(targetId);
+                if (reward <= 0) return;
+                syncOnlinePlayer(targetId);
+                sendBountyReward(source, hunterId, reward);
+                getLogger().info("Bounty " + reward + " claimed for " + hunterId + " from " + targetId);
+                return;
+            }
+
             UUID uuid = UUID.fromString(in.readUTF());
             String rank = in.readUTF();
             BigDecimal balance = new BigDecimal(in.readUTF());
-            if (!uuid.equals(player.getUniqueId()) || !rank.matches("[a-zA-Z0-9_-]{1,32}")
-                    || balance.signum() < 0 || balance.scale() > 2 || balance.precision() > 18
-                    || in.available() != 0) {
-                getLogger().warning("Rejected invalid sync payload from " + source.getInfo().getName());
-                return;
-            }
-
+            if (!uuid.equals(carrier.getUniqueId()) || !rank.matches("[a-zA-Z0-9_-]{1,32}")
+                    || balance.signum() < 0 || balance.scale() > 2 || balance.precision() > 18 || in.available() != 0) return;
             PlayerRecord record;
             if ("HELLO".equals(operation)) {
                 record = dataStore.get(uuid);
-                if (record == null) {
-                    record = new PlayerRecord(rank, balance.doubleValue());
-                    dataStore.set(uuid, record);
-                    getLogger().info("Registered first player data for " + uuid + " from " + sourceName);
-                }
+                if (record == null) { record = new PlayerRecord(rank, balance.doubleValue()); dataStore.set(uuid, record); }
             } else if ("UPDATE".equals(operation)) {
-                record = new PlayerRecord(rank, balance.doubleValue());
+                PlayerRecord old = dataStore.get(uuid);
+                record = new PlayerRecord(rank, balance.doubleValue(), old == null ? 0 : old.playtimeSeconds(), old == null ? 0 : old.bounty());
                 dataStore.set(uuid, record);
-                getLogger().info("Updated player data for " + uuid + " from " + sourceName
-                        + " (rank " + rank + ").");
-            } else {
-                return;
-            }
-            // Deliver the response to the backend connection, not the player's client.
+            } else return;
             sendSync(source, uuid, record);
-        } catch (Exception ex) {
-            getLogger().log(Level.WARNING, "Rejected malformed sync packet.", ex);
-        }
+        } catch (Exception ex) { getLogger().log(Level.WARNING, "Rejected malformed sync packet.", ex); }
     }
 
-    @EventHandler
-    public void onServerConnected(ServerConnectedEvent event) {
+    private void syncOnlinePlayer(UUID uuid) {
+        ProxiedPlayer target = getProxy().getPlayer(uuid);
+        if (target != null && target.getServer() != null) sendSync(target.getServer(), uuid, dataStore.get(uuid));
+    }
+    @EventHandler public void onServerConnected(ServerConnectedEvent event) {
         if (dataStore == null || channel == null) return;
         PlayerRecord record = dataStore.get(event.getPlayer().getUniqueId());
-        if (record == null) {
-            getLogger().fine("No saved network data yet for " + event.getPlayer().getUniqueId()
-                    + "; waiting for the backend HELLO packet.");
-            return;
-        }
-        sendSync(event.getServer(), event.getPlayer().getUniqueId(), record);
-        getLogger().info("Sent saved rank and balance to " + event.getPlayer().getName()
-                + " on " + event.getServer().getInfo().getName() + ".");
+        if (record != null) sendSync(event.getServer(), event.getPlayer().getUniqueId(), record);
     }
-
     private void sendSync(Server targetServer, UUID uuid, PlayerRecord record) {
+        if (record == null) return;
         try {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-            DataOutputStream out = new DataOutputStream(bytes);
-            out.writeUTF("SYNC");
-            out.writeUTF(uuid.toString());
-            out.writeUTF(record.rank());
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream(); DataOutputStream out = new DataOutputStream(bytes);
+            out.writeUTF("SYNC"); out.writeUTF(uuid.toString()); out.writeUTF(record.rank());
             out.writeUTF(BigDecimal.valueOf(record.balance()).setScale(2, java.math.RoundingMode.HALF_UP).toPlainString());
-            out.flush();
+            out.writeLong(record.playtimeSeconds()); out.writeDouble(record.bounty()); out.flush();
             targetServer.sendData(channel, bytes.toByteArray());
-        } catch (IOException ex) {
-            getLogger().log(Level.WARNING, "Could not send synchronized player data.", ex);
-        }
+        } catch (IOException ex) { getLogger().log(Level.WARNING, "Could not send synchronized player data.", ex); }
+    }
+    private void sendBountyReward(Server targetServer, UUID hunterId, double amount) {
+        try {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream(); DataOutputStream out = new DataOutputStream(bytes);
+            out.writeUTF("BOUNTY_REWARD"); out.writeUTF(hunterId.toString()); out.writeDouble(amount); out.flush();
+            targetServer.sendData(channel, bytes.toByteArray());
+        } catch (IOException ex) { getLogger().log(Level.WARNING, "Could not send bounty reward.", ex); }
     }
 
     private final class SyncCommand extends Command {
-        private SyncCommand() {
-            super("allinoneproxy", "allinoneproxy.sync", "allinoneproy");
-        }
-
-        @Override
-        public void execute(CommandSender sender, String[] args) {
-            if (!sender.hasPermission("allinoneproxy.sync")) {
-                sender.sendMessage(new TextComponent("§cDafür hast du keine Rechte."));
-                return;
-            }
-            if (args.length != 4 || !(args[0].equalsIgnoreCase("sync") || args[0].equalsIgnoreCase("synch"))
-                    || !args[1].equalsIgnoreCase("all") || !args[2].equalsIgnoreCase("from")) {
-                sender.sendMessage(new TextComponent("§eNutzung: /allinoneproxy sync all from <Server>"));
-                return;
+        private SyncCommand() { super("allinoneproxy", "allinoneproxy.sync", "allinoneproy"); }
+        @Override public void execute(CommandSender sender, String[] args) {
+            if (!sender.hasPermission("allinoneproxy.sync")) { sender.sendMessage(new TextComponent("§cDafür hast du keine Rechte.")); return; }
+            if (args.length != 4 || !(args[0].equalsIgnoreCase("sync") || args[0].equalsIgnoreCase("synch")) || !args[1].equalsIgnoreCase("all") || !args[2].equalsIgnoreCase("from")) {
+                sender.sendMessage(new TextComponent("§eNutzung: /allinoneproxy sync all from <Server>")); return;
             }
             String serverName = args[3];
-            if (!allowedServers.contains(serverName.toLowerCase(Locale.ROOT))) {
-                sender.sendMessage(new TextComponent("§cDieser Server ist nicht in allowed-servers eingetragen."));
-                return;
-            }
+            if (!allowedServers.contains(serverName.toLowerCase(Locale.ROOT))) { sender.sendMessage(new TextComponent("§cDieser Server ist nicht in allowed-servers eingetragen.")); return; }
             ServerInfo target = getProxy().getServerInfo(serverName);
-            if (target == null) {
-                sender.sendMessage(new TextComponent("§cServer '" + serverName + "' wurde im Proxy nicht gefunden."));
-                return;
-            }
-            if (target.getPlayers().isEmpty()) {
-                sender.sendMessage(new TextComponent("§cAuf " + target.getName() + " ist gerade niemand online."));
-                return;
-            }
+            if (target == null) { sender.sendMessage(new TextComponent("§cServer '" + serverName + "' wurde im Proxy nicht gefunden.")); return; }
+            if (target.getPlayers().isEmpty()) { sender.sendMessage(new TextComponent("§cAuf " + target.getName() + " ist gerade niemand online.")); return; }
             try {
-                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-                DataOutputStream out = new DataOutputStream(bytes);
-                out.writeUTF("REQUEST_ALL");
-                out.flush();
-                boolean sent = target.sendData(channel, bytes.toByteArray(), false);
-                if (!sent) {
-                    sender.sendMessage(new TextComponent("§cAnfrage konnte nicht an " + target.getName() + " gesendet werden."));
-                    return;
-                }
-                sender.sendMessage(new TextComponent("§aVollständige Rang- und Geld-Synchronisierung von "
-                        + target.getName() + " angefordert. Details stehen im Proxy- und Paper-Log."));
-                getLogger().info(sender.getName() + " requested full rank/balance sync from " + target.getName() + ".");
-            } catch (IOException ex) {
-                sender.sendMessage(new TextComponent("§cSync-Anfrage konnte nicht erstellt werden."));
-                getLogger().log(Level.WARNING, "Could not create full sync request.", ex);
-            }
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream(); DataOutputStream out = new DataOutputStream(bytes);
+                out.writeUTF("REQUEST_ALL"); out.flush();
+                if (!target.sendData(channel, bytes.toByteArray(), false)) { sender.sendMessage(new TextComponent("§cAnfrage konnte nicht gesendet werden.")); return; }
+                sender.sendMessage(new TextComponent("§aVollständige Synchronisierung von " + target.getName() + " angefordert."));
+            } catch (IOException ex) { sender.sendMessage(new TextComponent("§cSync-Anfrage konnte nicht erstellt werden.")); }
         }
     }
-
     public PlayerDataStore getDataStore() { return dataStore; }
 }
