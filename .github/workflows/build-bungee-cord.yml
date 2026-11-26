@@ -40,7 +40,7 @@ jobs:
       - name: Apply AllInOne hybrid-auth patch
         working-directory: bungeecord
         run: |
-          git apply ../proxy-patches/hybrid-premium-auth.patch
+          python ../proxy-patches/apply-hybrid-auth.py
           git diff --check
           git diff -- proxy/src/main/java/net/md_5/bungee/connection/InitialHandler.java
 
