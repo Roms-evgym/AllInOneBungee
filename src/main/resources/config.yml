@@ -1,5 +1,6 @@
 # Backend server names must match the names in BungeeCord's config.yml.
 channel: allinone:sync
+lobby-server: lobby
 storage-file: players.yml
 allowed-servers:
   - lobby
