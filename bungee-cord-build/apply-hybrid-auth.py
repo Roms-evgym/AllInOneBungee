@@ -46,8 +46,8 @@ replacement = """    public void handle(LoginRequest loginRequest) throws Except
         // normal encryption and session-server validation. Unknown names use lobby login.
         if ( !BungeeCord.getInstance().config.isOnlineMode() )
         {
-            String profileName = loginRequest.getData().toLowerCase(java.util.Locale.ROOT);
-            Boolean cachedPremium = HYBRID_PROFILE_CACHE.getIfPresent( profileName );
+            String profileName = loginRequest.getData().toLowerCase( java.util.Locale.ROOT );
+            Boolean cachedPremium = HYBRID_PROFILE_CACHE.getIfPresent(profileName);
             if ( cachedPremium != null )
             {
                 onlineMode = cachedPremium;
