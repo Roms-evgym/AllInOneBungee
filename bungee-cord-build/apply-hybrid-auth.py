@@ -85,28 +85,24 @@ replacement = """    public void handle(LoginRequest loginRequest) throws Except
 
 """
 
-# Keep finish() exception handling in one helper so every call site is safe.
+# Catch the checked exception thrown by EncryptionUtil.encryptRequest().
 source = source[:start] + replacement + source[end:]
-source = source.replace("finish();", "finishSafely();")
 
-helper_anchor = "    @Override\n    public void handle(final EncryptionResponse encryptResponse)"
-helper = """    private void finishSafely()
-    {
-        try
-        {
-            finish();
-        } catch ( java.security.GeneralSecurityException ex )
-        {
-            bungee.getLogger().log( Level.SEVERE, "Could not finish login for " + getName(), ex );
-            disconnect( "§cAnmeldung fehlgeschlagen. Bitte erneut versuchen." );
-        }
-    }
-
+encrypt_call = """                    thisState = State.ENCRYPT;
+                    unsafe().sendPacket( request = EncryptionUtil.encryptRequest() );
 """
-if "private void finishSafely()" not in source:
-    if helper_anchor not in source:
-        raise SystemExit("Could not locate EncryptionResponse handler for finish helper")
-    source = source.replace(helper_anchor, helper + helper_anchor, 1)
-
+encrypt_call_safe = """                    thisState = State.ENCRYPT;
+                    try
+                    {
+                        unsafe().sendPacket( request = EncryptionUtil.encryptRequest() );
+                    } catch ( java.security.GeneralSecurityException ex )
+                    {
+                        bungee.getLogger().log( Level.SEVERE, "Could not start premium encryption for " + getName(), ex );
+                        disconnect( "§cPremium-Anmeldung fehlgeschlagen. Bitte erneut versuchen." );
+                    }
+"""
+if encrypt_call not in source:
+    raise SystemExit("Could not locate premium EncryptionUtil.encryptRequest() call")
+source = source.replace(encrypt_call, encrypt_call_safe, 1)
 target.write_text(source, encoding="utf-8")
 print("Hybrid login patch applied with centralized finishSafely() exception handling")
