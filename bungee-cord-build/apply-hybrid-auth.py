@@ -85,6 +85,8 @@ replacement = """    public void handle(LoginRequest loginRequest) throws Except
 
 """
 
+# Catch the checked exception only in the offline PreLogin callback.
+# The online callback already runs in a context that handles its own errors.
 offline_finish = """                } else
                 {
                     thisState = State.FINISHING;
@@ -105,7 +107,7 @@ offline_finish_safe = """                } else
                 }
 """
 if offline_finish not in replacement:
-    raise SystemExit("Could not locate offline PreLogin finish branch")
+    raise SystemExit("Could not locate exact offline PreLogin finish branch")
 replacement = replacement.replace(offline_finish, offline_finish_safe, 1)
 
 source = source[:start] + replacement + source[end:]
