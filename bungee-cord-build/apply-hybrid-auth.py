@@ -12,8 +12,8 @@ if "import java.util.concurrent.TimeUnit;" not in source:
 field_anchor = "    private State thisState = State.HANDSHAKE;\n"
 field_addition = """    // Cache Mojang profile lookups briefly to avoid one HTTP request per reconnect.
     private static final com.google.common.cache.Cache<String, Boolean> HYBRID_PROFILE_CACHE =
-            com.google.common.cache.CacheBuilder.newBuilder().maximumSize(10000)
-                    .expireAfterWrite(10, TimeUnit.MINUTES).build();
+            com.google.common.cache.CacheBuilder.newBuilder().maximumSize( 10000 )
+                    .expireAfterWrite( 10, TimeUnit.MINUTES ).build();
 """
 if "HYBRID_PROFILE_CACHE" not in source:
     if field_anchor not in source:
@@ -46,7 +46,7 @@ replacement = """    public void handle(LoginRequest loginRequest) throws Except
         // normal encryption and session-server validation. Unknown names use lobby login.
         if ( !BungeeCord.getInstance().config.isOnlineMode() )
         {
-            String profileName = loginRequest.getData().toLowerCase( java.util.Locale.ROOT );
+            String profileName = loginRequest.getData().toLowerCase(java.util.Locale.ROOT);
             Boolean cachedPremium = HYBRID_PROFILE_CACHE.getIfPresent( profileName );
             if ( cachedPremium != null )
             {
@@ -112,4 +112,4 @@ if async_callback not in source:
     raise SystemExit("Could not locate asynchronous Mojang callback continuation")
 source = source.replace(async_callback, async_callback_safe, 1)
 target.write_text(source, encoding="utf-8")
-print("Hybrid login patch applied with centralized finishSafely() exception handling")
+print("Hybrid login patch applied with premium encryption exception handling")
