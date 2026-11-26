@@ -3,7 +3,7 @@ name: Build custom BungeeCord 26.1 hybrid auth
 on:
   push:
     paths:
-      - "proxy-patches/**"
+      - "bungee-cord-build/**"
       - ".github/workflows/build-bungee-cord.yml"
   workflow_dispatch:
 
@@ -40,7 +40,7 @@ jobs:
       - name: Apply AllInOne hybrid-auth patch
         working-directory: bungeecord
         run: |
-          python ../proxy-patches/apply-hybrid-auth.py
+          python ../bungee-cord-build/apply-hybrid-auth.py
           git diff --check
           git diff -- proxy/src/main/java/net/md_5/bungee/connection/InitialHandler.java
 
