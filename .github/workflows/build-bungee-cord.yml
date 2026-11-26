@@ -46,7 +46,20 @@ jobs:
 
       - name: Build BungeeCord
         working-directory: bungeecord
-        run: mvn --activate-profiles dist --no-transfer-progress package
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4; do
+            echo "Maven build attempt ${attempt}/4"
+            if mvn --activate-profiles dist --no-transfer-progress package; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              echo "Maven build failed after four attempts."
+              exit 1
+            fi
+            echo "Build failed; waiting 20 seconds before retry (temporary repository/rate-limit failures are common)."
+            sleep 20
+          done
 
       - name: Prepare bungee-cord.jar
         run: |
