@@ -21,8 +21,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: SpigotMC/BungeeCord
-          ref: 55e1b0b
           path: bungeecord
+
+      - name: Pin exact BungeeCord source revision
+        working-directory: bungeecord
+        run: |
+          git fetch --depth=1 origin 55e1b0b
+          git checkout --detach FETCH_HEAD
 
       - name: Set up Java 25
         uses: actions/setup-java@v4
