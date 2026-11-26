@@ -83,28 +83,27 @@ replacement = """    public void handle(LoginRequest loginRequest) throws Except
     {
 """ + body + """    }
 
-    private void sendHybridEncryptionRequest()
-    {
-        try
-        {
-            request = EncryptionUtil.encryptRequest();
-            unsafe().sendPacket( request );
-        } catch ( java.security.GeneralSecurityException ex )
-        {
-            bungee.getLogger().log( Level.SEVERE, "Could not create hybrid login encryption request for " + getName(), ex );
-            disconnect( "§cAnmeldung fehlgeschlagen. Bitte erneut versuchen." );
-        }
-    }
-
 """
 
-# The upstream callback has version-dependent online-mode handling. Replace only
-# the encryption request expression, keeping the 26.4+ key exchange branch intact.
-needle = "unsafe().sendPacket( request = EncryptionUtil.encryptRequest() );"
-if needle in replacement:
-    replacement = replacement.replace(needle, "sendHybridEncryptionRequest();", 1)
-else:
-    raise SystemExit("Could not find legacy encryption request call")
+# The encryption request itself does not throw GeneralSecurityException on this
+# source revision. The checked exception comes from completing the offline login
+# in the PreLogin callback, so handle it at that call site instead.
+finish_call = """                    thisState = State.FINISHING;
+                    finish();
+"""
+finish_safe = """                    thisState = State.FINISHING;
+                    try
+                    {
+                        finish();
+                    } catch ( java.security.GeneralSecurityException ex )
+                    {
+                        bungee.getLogger().log( Level.SEVERE, "Could not finish hybrid login for " + getName(), ex );
+                        disconnect( "§cAnmeldung fehlgeschlagen. Bitte erneut versuchen." );
+                    }
+"""
+if finish_call not in replacement:
+    raise SystemExit("Could not locate offline PreLogin finish call")
+replacement = replacement.replace(finish_call, finish_safe, 1)
 
 source = source[:start] + replacement + source[end:]
 target.write_text(source, encoding="utf-8")
