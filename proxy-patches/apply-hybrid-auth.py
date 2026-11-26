@@ -85,25 +85,31 @@ replacement = """    public void handle(LoginRequest loginRequest) throws Except
 
 """
 
-# The encryption request itself does not throw GeneralSecurityException on this
-# source revision. The checked exception comes from completing the offline login
-# in the PreLogin callback, so handle it at that call site instead.
-finish_call = """                    thisState = State.FINISHING;
+# The offline branch completes login inside the PreLogin callback. In this
+# BungeeCord revision finish() declares GeneralSecurityException, so catch it
+# at this exact call site (not in the later online hasJoined callback).
+offline_finish = """                } else
+                {
+                    thisState = State.FINISHING;
                     finish();
+                }
 """
-finish_safe = """                    thisState = State.FINISHING;
+offline_finish_safe = """                } else
+                {
+                    thisState = State.FINISHING;
                     try
                     {
                         finish();
                     } catch ( java.security.GeneralSecurityException ex )
                     {
-                        bungee.getLogger().log( Level.SEVERE, "Could not finish hybrid login for " + getName(), ex );
+                        bungee.getLogger().log( Level.SEVERE, "Could not finish hybrid offline login for " + getName(), ex );
                         disconnect( "§cAnmeldung fehlgeschlagen. Bitte erneut versuchen." );
                     }
+                }
 """
-if finish_call not in replacement:
-    raise SystemExit("Could not locate offline PreLogin finish call")
-replacement = replacement.replace(finish_call, finish_safe, 1)
+if offline_finish not in replacement:
+    raise SystemExit("Could not locate offline PreLogin finish branch")
+replacement = replacement.replace(offline_finish, offline_finish_safe, 1)
 
 source = source[:start] + replacement + source[end:]
 target.write_text(source, encoding="utf-8")
