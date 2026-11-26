@@ -7,6 +7,8 @@ import net.md_5.bungee.api.CommandSender;
 import net.md_5.bungee.api.chat.TextComponent;
 import net.md_5.bungee.api.plugin.Command;
 import net.md_5.bungee.api.event.PluginMessageEvent;
+import net.md_5.bungee.api.event.LoginEvent;
+import net.md_5.bungee.api.event.PostLoginEvent;
 import net.md_5.bungee.api.event.ServerConnectEvent;
 import net.md_5.bungee.api.event.PlayerDisconnectEvent;
 import net.md_5.bungee.api.event.ServerConnectedEvent;
@@ -28,6 +30,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
 import java.util.logging.Level;
 
 public final class AllInOneBungee extends Plugin implements Listener {
@@ -38,6 +41,8 @@ public final class AllInOneBungee extends Plugin implements Listener {
     private Set<String> allowedServers = Set.of();
     private final Set<UUID> authenticatedSessions = ConcurrentHashMap.newKeySet();
     private String lobbyServer = "lobby";
+    private File premiumAccountsFile;
+    private Configuration premiumAccounts;
 
     @Override public void onEnable() {
         if (!getDataFolder().exists() && !getDataFolder().mkdirs()) { getLogger().severe("Could not create plugin data folder."); return; }
@@ -57,6 +62,13 @@ public final class AllInOneBungee extends Plugin implements Listener {
             allowedServers = Set.copyOf(servers);
             lobbyServer = config.getString("lobby-server", "lobby").toLowerCase(Locale.ROOT);
             dataStore = new PlayerDataStore(new File(getDataFolder(), config.getString("storage-file", "players.yml")));
+            premiumAccountsFile = new File(getDataFolder(), "premium-accounts.yml");
+            if (!premiumAccountsFile.exists()) {
+                Configuration emptyPremiumAccounts = new Configuration();
+                emptyPremiumAccounts.set("names", new java.util.LinkedHashMap<String, Object>());
+                ConfigurationProvider.getProvider(YamlConfiguration.class).save(emptyPremiumAccounts, premiumAccountsFile);
+            }
+            premiumAccounts = ConfigurationProvider.getProvider(YamlConfiguration.class).load(premiumAccountsFile);
             getProxy().registerChannel(channel);
             getProxy().registerChannel(AUTH_CHANNEL);
             getProxy().getPluginManager().registerListener(this, this);
@@ -131,6 +143,41 @@ public final class AllInOneBungee extends Plugin implements Listener {
         } catch (Exception ex) { getLogger().log(Level.WARNING, "Rejected malformed sync packet.", ex); }
     }
 
+
+
+    @EventHandler public void onLogin(LoginEvent event) {
+        String name = event.getConnection().getName();
+        if (name == null) return;
+        String reservedUuid = premiumAccounts.getString("names." + name.toLowerCase(Locale.ROOT) + ".uuid");
+        if (reservedUuid != null && !reservedUuid.equals(event.getConnection().getUniqueId().toString())) {
+            event.setCancelled(true);
+            event.setReason(new TextComponent("§cDieser Name ist dauerhaft für den verifizierten Premium-Account reserviert."));
+        }
+    }
+
+    @EventHandler public void onPostLogin(PostLoginEvent event) {
+        ProxiedPlayer player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+        UUID offlineUuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + player.getName()).getBytes(StandardCharsets.UTF_8));
+        if (uuid.equals(offlineUuid)) return; // Offline/cracked identity: lobby password required.
+        String key = "names." + player.getName().toLowerCase(Locale.ROOT);
+        String existing = premiumAccounts.getString(key + ".uuid");
+        if (existing != null && !existing.equals(uuid.toString())) {
+            player.disconnect(new TextComponent("§cDieser Premium-Name gehört bereits zu einem anderen verifizierten Account."));
+            return;
+        }
+        premiumAccounts.set(key + ".uuid", uuid.toString());
+        premiumAccounts.set(key + ".name", player.getName());
+        try {
+            ConfigurationProvider.getProvider(YamlConfiguration.class).save(premiumAccounts, premiumAccountsFile);
+        } catch (IOException ex) {
+            getLogger().log(Level.SEVERE, "Could not persist premium name reservation.", ex);
+            player.disconnect(new TextComponent("§cDein Premium-Account konnte nicht sicher reserviert werden. Bitte versuche es später erneut."));
+            return;
+        }
+        authenticatedSessions.add(uuid);
+        getLogger().info("Verified premium identity reserved: " + player.getName() + " (" + uuid + ")");
+    }
 
     private void handleAuthMessage(PluginMessageEvent event) {
         event.setCancelled(true);
