@@ -178,8 +178,26 @@ public final class AllInOneBungee extends Plugin implements Listener {
     }
     @EventHandler public void onServerConnected(ServerConnectedEvent event) {
         if (dataStore == null || channel == null) return;
-        PlayerRecord record = dataStore.get(event.getPlayer().getUniqueId());
-        if (record != null) sendSync(event.getServer(), event.getPlayer().getUniqueId(), record);
+        UUID uuid = event.getPlayer().getUniqueId();
+        PlayerRecord record = dataStore.get(uuid);
+        if (record != null) sendSync(event.getServer(), uuid, record);
+        if (authenticatedSessions.contains(uuid)
+                && event.getServer().getInfo().getName().equalsIgnoreCase(lobbyServer)) {
+            sendAuthState(event.getServer(), uuid, "AUTHENTICATED");
+        }
+    }
+
+    private void sendAuthState(Server targetServer, UUID uuid, String operation) {
+        try {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            DataOutputStream out = new DataOutputStream(bytes);
+            out.writeUTF(operation);
+            out.writeUTF(uuid.toString());
+            out.flush();
+            targetServer.sendData(AUTH_CHANNEL, bytes.toByteArray());
+        } catch (IOException ex) {
+            getLogger().log(Level.WARNING, "Could not send auth session state to backend.", ex);
+        }
     }
     private void sendSync(Server targetServer, UUID uuid, PlayerRecord record) {
         if (record == null) return;
