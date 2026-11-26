@@ -85,31 +85,28 @@ replacement = """    public void handle(LoginRequest loginRequest) throws Except
 
 """
 
-# Catch the checked exception only in the offline PreLogin callback.
-# The online callback already runs in a context that handles its own errors.
-offline_finish = """                } else
-                {
-                    thisState = State.FINISHING;
-                    finish();
-                }
-"""
-offline_finish_safe = """                } else
-                {
-                    thisState = State.FINISHING;
-                    try
-                    {
-                        finish();
-                    } catch ( java.security.GeneralSecurityException ex )
-                    {
-                        bungee.getLogger().log( Level.SEVERE, "Could not finish hybrid offline login for " + getName(), ex );
-                        disconnect( "§cAnmeldung fehlgeschlagen. Bitte erneut versuchen." );
-                    }
-                }
-"""
-if offline_finish not in replacement:
-    raise SystemExit("Could not locate exact offline PreLogin finish branch")
-replacement = replacement.replace(offline_finish, offline_finish_safe, 1)
-
+# Keep finish() exception handling in one helper so every call site is safe.
 source = source[:start] + replacement + source[end:]
+source = source.replace("finish();", "finishSafely();")
+
+helper_anchor = "    @Override\n    public void handle(final EncryptionResponse encryptResponse)"
+helper = """    private void finishSafely()
+    {
+        try
+        {
+            finish();
+        } catch ( java.security.GeneralSecurityException ex )
+        {
+            bungee.getLogger().log( Level.SEVERE, "Could not finish login for " + getName(), ex );
+            disconnect( "§cAnmeldung fehlgeschlagen. Bitte erneut versuchen." );
+        }
+    }
+
+"""
+if "private void finishSafely()" not in source:
+    if helper_anchor not in source:
+        raise SystemExit("Could not locate EncryptionResponse handler for finish helper")
+    source = source.replace(helper_anchor, helper + helper_anchor, 1)
+
 target.write_text(source, encoding="utf-8")
-print("Hybrid premium authentication patch applied to InitialHandler.java")
+print("Hybrid login patch applied with centralized finishSafely() exception handling")
