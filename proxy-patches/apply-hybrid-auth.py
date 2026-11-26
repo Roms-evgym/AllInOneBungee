@@ -42,9 +42,8 @@ replacement = """    public void handle(LoginRequest loginRequest) throws Except
         Preconditions.checkState( thisState == State.USERNAME && this.loginRequest == null, "Not expecting USERNAME" );
         this.loginRequest = loginRequest;
 
-        // In offline-mode proxies, force every name that exists in Mojang's Java
-        // profile service through BungeeCord's normal encryption + hasJoined flow.
-        // Unknown names stay offline and are protected by the lobby /register + /login.
+        // Existing Mojang profiles must prove account ownership through BungeeCord's
+        // normal encryption and session-server validation. Unknown names use lobby login.
         if ( !BungeeCord.getInstance().config.isOnlineMode() )
         {
             String profileName = loginRequest.getData().toLowerCase( java.util.Locale.ROOT );
@@ -62,8 +61,8 @@ replacement = """    public void handle(LoginRequest loginRequest) throws Except
             {
                 if ( error != null )
                 {
-                    bungee.getLogger().log( Level.WARNING, "Could not verify whether " + loginRequest.getData()
-                            + " is a premium Java profile; refusing offline fallback.", error );
+                    bungee.getLogger().log( Level.WARNING, "Could not check Mojang profile for " + loginRequest.getData()
+                            + "; refusing offline fallback.", error );
                     disconnect( "§cPremium-Status konnte nicht geprüft werden. Bitte später erneut verbinden." );
                     return;
                 }
@@ -84,35 +83,28 @@ replacement = """    public void handle(LoginRequest loginRequest) throws Except
     {
 """ + body + """    }
 
+    private void sendHybridEncryptionRequest()
+    {
+        try
+        {
+            request = EncryptionUtil.encryptRequest();
+            unsafe().sendPacket( request );
+        } catch ( java.security.GeneralSecurityException ex )
+        {
+            bungee.getLogger().log( Level.SEVERE, "Could not create hybrid login encryption request for " + getName(), ex );
+            disconnect( "§cAnmeldung fehlgeschlagen. Bitte erneut versuchen." );
+        }
+    }
+
 """
 
-replacement = replacement.replace(
-    """                if ( onlineMode )
-                {
-                    thisState = State.ENCRYPT;
-                    unsafe().sendPacket( request = EncryptionUtil.encryptRequest() );
-                } else
-                {
-                    thisState = State.FINISHING;
-                    finish();
-                }""",
-    """                try
-                {
-                    if ( onlineMode )
-                    {
-                        thisState = State.ENCRYPT;
-                        unsafe().sendPacket( request = EncryptionUtil.encryptRequest() );
-                    } else
-                    {
-                        thisState = State.FINISHING;
-                        finish();
-                    }
-                } catch ( java.security.GeneralSecurityException ex )
-                {
-                    bungee.getLogger().log( Level.SEVERE, "Could not finish hybrid login for " + getName(), ex );
-                    disconnect( "§cAnmeldung fehlgeschlagen. Bitte erneut versuchen." );
-                }"""
-)
+# The upstream callback has version-dependent online-mode handling. Replace only
+# the encryption request expression, keeping the 26.4+ key exchange branch intact.
+needle = "unsafe().sendPacket( request = EncryptionUtil.encryptRequest() );"
+if needle in replacement:
+    replacement = replacement.replace(needle, "sendHybridEncryptionRequest();", 1)
+else:
+    raise SystemExit("Could not find legacy encryption request call")
 
 source = source[:start] + replacement + source[end:]
 target.write_text(source, encoding="utf-8")
