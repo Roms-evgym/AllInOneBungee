@@ -86,6 +86,34 @@ replacement = """    public void handle(LoginRequest loginRequest) throws Except
 
 """
 
+replacement = replacement.replace(
+    """                if ( onlineMode )
+                {
+                    thisState = State.ENCRYPT;
+                    unsafe().sendPacket( request = EncryptionUtil.encryptRequest() );
+                } else
+                {
+                    thisState = State.FINISHING;
+                    finish();
+                }""",
+    """                try
+                {
+                    if ( onlineMode )
+                    {
+                        thisState = State.ENCRYPT;
+                        unsafe().sendPacket( request = EncryptionUtil.encryptRequest() );
+                    } else
+                    {
+                        thisState = State.FINISHING;
+                        finish();
+                    }
+                } catch ( java.security.GeneralSecurityException ex )
+                {
+                    bungee.getLogger().log( Level.SEVERE, "Could not finish hybrid login for " + getName(), ex );
+                    disconnect( "§cAnmeldung fehlgeschlagen. Bitte erneut versuchen." );
+                }"""
+)
+
 source = source[:start] + replacement + source[end:]
 target.write_text(source, encoding="utf-8")
 print("Hybrid premium authentication patch applied to InitialHandler.java")
