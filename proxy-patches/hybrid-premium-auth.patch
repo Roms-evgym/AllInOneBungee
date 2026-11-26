@@ -1,0 +1,69 @@
+diff --git a/proxy/src/main/java/net/md_5/bungee/connection/InitialHandler.java b/proxy/src/main/java/net/md_5/bungee/connection/InitialHandler.java
+index 0000000..0000000 100644
+--- a/proxy/src/main/java/net/md_5/bungee/connection/InitialHandler.java
++++ b/proxy/src/main/java/net/md_5/bungee/connection/InitialHandler.java
+@@ -20,6 +20,7 @@ import java.util.Map;
+ import java.util.Queue;
+ import java.util.Set;
+ import java.util.UUID;
++import java.util.concurrent.TimeUnit;
+ import java.util.concurrent.CompletableFuture;
+ import java.util.logging.Level;
+@@ -94,6 +95,11 @@ public class InitialHandler extends PacketHandler implements PendingConnection
+     private State thisState = State.HANDSHAKE;
++    // A name that exists in Mojang's Java profile service must complete the normal
++    // encrypted hasJoined check. Unknown names remain in offline mode for cracked users.
++    private static final com.google.common.cache.Cache<String, Boolean> HYBRID_PROFILE_CACHE =
++            com.google.common.cache.CacheBuilder.newBuilder().maximumSize(10000)
++                    .expireAfterWrite(10, TimeUnit.MINUTES).build();
+     private int loginPayloadId;
+@@ -323,6 +329,40 @@ public class InitialHandler extends PacketHandler implements PendingConnection
+     public void handle(LoginRequest loginRequest) throws Exception
+     {
+         Preconditions.checkState( thisState == State.USERNAME && this.loginRequest == null, "Not expecting USERNAME" );
++
++        this.loginRequest = loginRequest;
++        if ( !BungeeCord.getInstance().config.isOnlineMode() )
++        {
++            String profileName = loginRequest.getData().toLowerCase( java.util.Locale.ROOT );
++            Boolean cachedPremium = HYBRID_PROFILE_CACHE.getIfPresent( profileName );
++            if ( cachedPremium != null )
++            {
++                onlineMode = cachedPremium;
++                continueLoginRequest();
++                return;
++            }
++
++            String profileUrl = "https://api.mojang.com/users/profiles/minecraft/"
++                    + URLEncoder.encode( loginRequest.getData(), "UTF-8" );
++            HttpClient.get( profileUrl, ch.getHandle().eventLoop(), ( result, error ) ->
++            {
++                if ( error != null )
++                {
++                    bungee.getLogger().log( Level.WARNING, "Could not verify whether " + loginRequest.getData()
++                            + " is a premium Java profile; refusing offline fallback.", error );
++                    disconnect( "§cPremium-Status konnte nicht geprüft werden. Bitte später erneut verbinden." );
++                    return;
++                }
++
++                boolean premiumProfile = result != null && !result.isBlank();
++                HYBRID_PROFILE_CACHE.put( profileName, premiumProfile );
++                onlineMode = premiumProfile;
++                continueLoginRequest();
++            } );
++            return;
++        }
++
++        onlineMode = true;
++        continueLoginRequest();
++    }
++
++    private void continueLoginRequest()
++    {
+ 
+         if ( !AllowedCharacters.isValidName( loginRequest.getData(), onlineMode ) )
+         {
+@@ -371,7 +411,7 @@ public class InitialHandler extends PacketHandler implements PendingConnection
+         // fire pre login event
+         bungee.getPluginManager().callEvent( new PreLoginEvent( InitialHandler.this, eventLoopCallback( callback ) ) );
+     }
