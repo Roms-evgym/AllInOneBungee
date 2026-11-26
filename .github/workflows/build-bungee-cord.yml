@@ -44,6 +44,22 @@ jobs:
           git diff --check
           git diff -- proxy/src/main/java/net/md_5/bungee/connection/InitialHandler.java
 
+      - name: Configure alternate Maven Central mirror
+        run: |
+          mkdir -p "$HOME/.m2"
+          cat > "$HOME/.m2/settings.xml" <<'EOF'
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">
+            <mirrors>
+              <mirror>
+                <id>google-maven-central</id>
+                <name>Google-hosted Maven Central mirror</name>
+                <url>https://maven-central.storage-download.googleapis.com/maven2</url>
+                <mirrorOf>central</mirrorOf>
+              </mirror>
+            </mirrors>
+          </settings>
+          EOF
+
       - name: Build BungeeCord
         working-directory: bungeecord
         run: |
