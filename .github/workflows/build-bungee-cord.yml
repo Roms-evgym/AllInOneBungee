@@ -1,0 +1,62 @@
+name: Build custom BungeeCord 26.1 hybrid auth
+
+on:
+  push:
+    paths:
+      - "proxy-patches/**"
+      - ".github/workflows/build-bungee-cord.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out AllInOneBungee patch repository
+        uses: actions/checkout@v4
+
+      - name: Check out exact BungeeCord source
+        uses: actions/checkout@v4
+        with:
+          repository: SpigotMC/BungeeCord
+          ref: 55e1b0b
+          path: bungeecord
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+          cache-dependency-path: bungeecord/pom.xml
+
+      - name: Apply AllInOne hybrid-auth patch
+        working-directory: bungeecord
+        run: |
+          git apply ../proxy-patches/hybrid-premium-auth.patch
+          git diff --check
+          git diff -- proxy/src/main/java/net/md_5/bungee/connection/InitialHandler.java
+
+      - name: Build BungeeCord
+        working-directory: bungeecord
+        run: mvn --activate-profiles dist --no-transfer-progress package
+
+      - name: Prepare bungee-cord.jar
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp bungeecord/bootstrap/target/BungeeCord.jar dist/bungee-cord.jar
+          sha256sum dist/bungee-cord.jar > dist/bungee-cord.jar.sha256
+          ls -lh dist/
+
+      - name: Upload bungee-cord.jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: bungee-cord.jar
+          path: |
+            dist/bungee-cord.jar
+            dist/bungee-cord.jar.sha256
+          if-no-files-found: error
+          retention-days: 30
