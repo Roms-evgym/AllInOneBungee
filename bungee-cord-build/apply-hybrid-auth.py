@@ -47,7 +47,7 @@ replacement = """    public void handle(LoginRequest loginRequest) throws Except
         if ( !BungeeCord.getInstance().config.isOnlineMode() )
         {
             String profileName = loginRequest.getData().toLowerCase( java.util.Locale.ROOT );
-            Boolean cachedPremium = HYBRID_PROFILE_CACHE.getIfPresent(profileName);
+            Boolean cachedPremium = HYBRID_PROFILE_CACHE.getIfPresent( profileName );
             if ( cachedPremium != null )
             {
                 onlineMode = cachedPremium;
@@ -57,7 +57,7 @@ replacement = """    public void handle(LoginRequest loginRequest) throws Except
 
             String profileUrl = "https://api.mojang.com/users/profiles/minecraft/"
                     + URLEncoder.encode( loginRequest.getData(), "UTF-8" );
-            HttpClient.get( profileUrl, ch.getHandle().eventLoop(), ( result, error ) ->
+            HttpClient.get( profileUrl, ch.getHandle().eventLoop(), (result, error) ->
             {
                 if ( error != null )
                 {
