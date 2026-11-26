@@ -7,6 +7,8 @@ import net.md_5.bungee.api.CommandSender;
 import net.md_5.bungee.api.chat.TextComponent;
 import net.md_5.bungee.api.plugin.Command;
 import net.md_5.bungee.api.event.PluginMessageEvent;
+import net.md_5.bungee.api.event.ServerConnectEvent;
+import net.md_5.bungee.api.event.PlayerDisconnectEvent;
 import net.md_5.bungee.api.event.ServerConnectedEvent;
 import net.md_5.bungee.api.plugin.Listener;
 import net.md_5.bungee.api.plugin.Plugin;
@@ -24,14 +26,18 @@ import java.math.BigDecimal;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.UUID;
 import java.util.logging.Level;
 
 public final class AllInOneBungee extends Plugin implements Listener {
     public static final String DEFAULT_CHANNEL = "allinone:sync";
+    public static final String AUTH_CHANNEL = "allinone:auth";
     private PlayerDataStore dataStore;
     private String channel;
     private Set<String> allowedServers = Set.of();
+    private final Set<UUID> authenticatedSessions = ConcurrentHashMap.newKeySet();
+    private String lobbyServer = "lobby";
 
     @Override public void onEnable() {
         if (!getDataFolder().exists() && !getDataFolder().mkdirs()) { getLogger().severe("Could not create plugin data folder."); return; }
@@ -41,6 +47,7 @@ public final class AllInOneBungee extends Plugin implements Listener {
                 Configuration defaults = new Configuration();
                 defaults.set("channel", DEFAULT_CHANNEL); defaults.set("storage-file", "players.yml");
                 defaults.set("allowed-servers", java.util.List.of("lobby", "survival"));
+                defaults.set("lobby-server", "lobby");
                 ConfigurationProvider.getProvider(YamlConfiguration.class).save(defaults, configFile);
             }
             Configuration config = ConfigurationProvider.getProvider(YamlConfiguration.class).load(configFile);
@@ -48,19 +55,26 @@ public final class AllInOneBungee extends Plugin implements Listener {
             Set<String> servers = new HashSet<>();
             for (String server : config.getStringList("allowed-servers")) servers.add(server.toLowerCase(Locale.ROOT));
             allowedServers = Set.copyOf(servers);
+            lobbyServer = config.getString("lobby-server", "lobby").toLowerCase(Locale.ROOT);
             dataStore = new PlayerDataStore(new File(getDataFolder(), config.getString("storage-file", "players.yml")));
             getProxy().registerChannel(channel);
+            getProxy().registerChannel(AUTH_CHANNEL);
             getProxy().getPluginManager().registerListener(this, this);
             getProxy().getPluginManager().registerCommand(this, new SyncCommand());
-            getLogger().info("Rank, balance, bounty and playtime synchronization is ACTIVE on " + channel + ". Approved backend servers: " + allowedServers);
+            getLogger().info("Rank, balance, bounty and playtime synchronization is ACTIVE on " + channel + ". Lobby auth gate: " + lobbyServer + ". Approved backend servers: " + allowedServers);
         } catch (IOException ex) { getLogger().log(Level.SEVERE, "Could not initialize AllInOneBungee.", ex); }
     }
     @Override public void onDisable() {
         if (dataStore != null) try { dataStore.save(); } catch (IOException ex) { getLogger().log(Level.SEVERE, "Could not save player data.", ex); }
         if (channel != null) getProxy().unregisterChannel(channel);
+        getProxy().unregisterChannel(AUTH_CHANNEL);
     }
 
     @EventHandler public void onPluginMessage(PluginMessageEvent event) {
+        if (AUTH_CHANNEL.equals(event.getTag())) {
+            handleAuthMessage(event);
+            return;
+        }
         if (channel == null || !channel.equals(event.getTag())) return;
         event.setCancelled(true);
         if (!(event.getSender() instanceof Server source) || !(event.getReceiver() instanceof ProxiedPlayer carrier)) return;
@@ -115,6 +129,47 @@ public final class AllInOneBungee extends Plugin implements Listener {
             } else return;
             sendSync(source, uuid, record);
         } catch (Exception ex) { getLogger().log(Level.WARNING, "Rejected malformed sync packet.", ex); }
+    }
+
+
+    private void handleAuthMessage(PluginMessageEvent event) {
+        event.setCancelled(true);
+        if (!(event.getSender() instanceof Server source) || !(event.getReceiver() instanceof ProxiedPlayer carrier)) return;
+        if (!source.getInfo().getName().equalsIgnoreCase(lobbyServer) || event.getData() == null || event.getData().length > 256) return;
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(event.getData()))) {
+            String operation = in.readUTF();
+            UUID uuid = UUID.fromString(in.readUTF());
+            if (!uuid.equals(carrier.getUniqueId()) || in.available() != 0) return;
+            if ("AUTHENTICATED".equals(operation)) {
+                authenticatedSessions.add(uuid);
+                carrier.sendMessage(new TextComponent("§aAllInOne Auth: Anmeldung bestätigt."));
+            } else if ("LOGOUT".equals(operation)) {
+                authenticatedSessions.remove(uuid);
+            }
+        } catch (Exception ex) {
+            getLogger().log(Level.WARNING, "Rejected malformed auth packet.", ex);
+        }
+    }
+
+    @EventHandler public void onServerConnect(ServerConnectEvent event) {
+        ProxiedPlayer player = event.getPlayer();
+        if (authenticatedSessions.contains(player.getUniqueId())) return;
+        if (event.getTarget().getName().equalsIgnoreCase(lobbyServer)) return;
+        event.setCancelled(true);
+        ServerInfo lobby = getProxy().getServerInfo(lobbyServer);
+        if (lobby == null) {
+            player.disconnect(new TextComponent("§cDie Lobby ist nicht verfügbar. Bitte versuche es später erneut."));
+            return;
+        }
+        if (player.getServer() == null || !player.getServer().getInfo().getName().equalsIgnoreCase(lobbyServer)) {
+            player.connect(lobby);
+        } else {
+            player.sendMessage(new TextComponent("§cBitte melde dich zuerst in der Lobby mit /login an."));
+        }
+    }
+
+    @EventHandler public void onPlayerDisconnect(PlayerDisconnectEvent event) {
+        authenticatedSessions.remove(event.getPlayer().getUniqueId());
     }
 
     private void syncOnlinePlayer(UUID uuid) {
