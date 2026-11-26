@@ -26,7 +26,7 @@ jobs:
       - name: Pin exact BungeeCord source revision
         working-directory: bungeecord
         run: |
-          git fetch --depth=1 origin 55e1b0b
+          git fetch --depth=1 origin 55e1b0bbe776e4b3af6c572a2b3d43fb60a526b1
           git checkout --detach FETCH_HEAD
 
       - name: Set up Java 25
