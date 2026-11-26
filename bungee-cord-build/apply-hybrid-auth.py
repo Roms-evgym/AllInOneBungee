@@ -85,24 +85,31 @@ replacement = """    public void handle(LoginRequest loginRequest) throws Except
 
 """
 
-# Catch the checked exception thrown by EncryptionUtil.encryptRequest().
+# Propagate crypto setup errors from the shared login continuation.
 source = source[:start] + replacement + source[end:]
+source = source.replace(
+    "    private void continueLoginRequest()",
+    "    private void continueLoginRequest() throws java.security.GeneralSecurityException",
+    1
+)
 
-encrypt_call = """                    thisState = State.ENCRYPT;
-                    unsafe().sendPacket( request = EncryptionUtil.encryptRequest() );
+async_callback = """                HYBRID_PROFILE_CACHE.put( profileName, premiumProfile );
+                onlineMode = premiumProfile;
+                continueLoginRequest();
 """
-encrypt_call_safe = """                    thisState = State.ENCRYPT;
-                    try
-                    {
-                        unsafe().sendPacket( request = EncryptionUtil.encryptRequest() );
-                    } catch ( java.security.GeneralSecurityException ex )
-                    {
-                        bungee.getLogger().log( Level.SEVERE, "Could not start premium encryption for " + getName(), ex );
-                        disconnect( "§cPremium-Anmeldung fehlgeschlagen. Bitte erneut versuchen." );
-                    }
+async_callback_safe = """                HYBRID_PROFILE_CACHE.put( profileName, premiumProfile );
+                onlineMode = premiumProfile;
+                try
+                {
+                    continueLoginRequest();
+                } catch ( java.security.GeneralSecurityException ex )
+                {
+                    bungee.getLogger().log( Level.SEVERE, "Could not continue hybrid login for " + getName(), ex );
+                    disconnect( "§cAnmeldung fehlgeschlagen. Bitte erneut versuchen." );
+                }
 """
-if encrypt_call not in source:
-    raise SystemExit("Could not locate premium EncryptionUtil.encryptRequest() call")
-source = source.replace(encrypt_call, encrypt_call_safe, 1)
+if async_callback not in source:
+    raise SystemExit("Could not locate asynchronous Mojang callback continuation")
+source = source.replace(async_callback, async_callback_safe, 1)
 target.write_text(source, encoding="utf-8")
 print("Hybrid login patch applied with centralized finishSafely() exception handling")
