@@ -71,6 +71,8 @@ public final class AllInOneBungee extends Plugin implements Listener {
                 ConfigurationProvider.getProvider(YamlConfiguration.class).save(emptyPremiumAccounts, premiumAccountsFile);
             }
             premiumAccounts = ConfigurationProvider.getProvider(YamlConfiguration.class).load(premiumAccountsFile);
+            getLogger().info("Premium account file loaded from: " + premiumAccountsFile.getAbsolutePath()
+                    + " | configured names: " + premiumAccounts.getSection("names").getKeys());
             nickFile = new File(getDataFolder(), "nicks.yml");
             if (!nickFile.exists()) {
                 Configuration emptyNicks = new Configuration();
@@ -208,7 +210,10 @@ public final class AllInOneBungee extends Plugin implements Listener {
         if (uuid.equals(offlineUuid)) return; // Offline/cracked identity: lobby password required.
         String key = "names." + player.getName().toLowerCase(Locale.ROOT);
         String existing = premiumAccounts.getString(key + ".uuid");
-        if (existing != null && !existing.equals(uuid.toString())) {
+        if (existing != null && !existing.equalsIgnoreCase(uuid.toString())) {
+            getLogger().warning("Premium identity conflict for name '" + player.getName()
+                    + "': stored UUID=" + existing + ", authenticated UUID=" + uuid
+                    + ", data file=" + premiumAccountsFile.getAbsolutePath());
             player.disconnect(new TextComponent("§cDieser Premium-Name gehört bereits zu einem anderen verifizierten Account."));
             return;
         }
