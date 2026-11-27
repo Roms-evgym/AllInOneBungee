@@ -210,6 +210,8 @@ public final class AllInOneBungee extends Plugin implements Listener {
         if (uuid.equals(offlineUuid)) return; // Offline/cracked identity: lobby password required.
         String key = "names." + player.getName().toLowerCase(Locale.ROOT);
         String existing = premiumAccounts.getString(key + ".uuid");
+        // Treat empty YAML values as an uninitialized reservation, not as a UUID.
+        if (existing != null && existing.isBlank()) existing = null;
         if (existing != null && !existing.equalsIgnoreCase(uuid.toString())) {
             getLogger().warning("Premium identity conflict for name '" + player.getName()
                     + "': stored UUID=" + existing + ", authenticated UUID=" + uuid
