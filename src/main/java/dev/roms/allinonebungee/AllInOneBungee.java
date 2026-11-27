@@ -189,7 +189,13 @@ public final class AllInOneBungee extends Plugin implements Listener {
         String name = event.getConnection().getName();
         if (name == null) return;
         String reservedUuid = premiumAccounts.getString("names." + name.toLowerCase(Locale.ROOT) + ".uuid");
-        if (reservedUuid != null && !reservedUuid.equals(event.getConnection().getUniqueId().toString())) {
+        if (reservedUuid == null) return;
+
+        // In hybrid mode the UUID available during LoginEvent may still be the
+        // offline UUID. Only decide whether the connection is allowed to proceed
+        // based on the proxy's Mojang-profile classification here. The actual
+        // authenticated UUID is checked in onPostLogin after hasJoined succeeds.
+        if (!event.getConnection().isOnlineMode()) {
             event.setCancelled(true);
             event.setReason(new TextComponent("§cDieser Name ist dauerhaft für den verifizierten Premium-Account reserviert."));
         }
