@@ -108,6 +108,14 @@ public final class AllInOneBungee extends Plugin implements Listener {
                 if (in.available() == 0) getLogger().info("Accepted full-sync request from " + sourceName);
                 return;
             }
+            if ("PRANK_SET".equals(operation)) {
+                UUID uuid = UUID.fromString(in.readUTF());
+                boolean enabled = in.readBoolean();
+                if (!uuid.equals(carrier.getUniqueId()) || in.available() != 0) return;
+                nickData.set("players." + uuid + ".prank-enabled", enabled);
+                saveNickData();
+                return;
+            }
             if ("NICK_SET".equals(operation)) {
                 UUID uuid = UUID.fromString(in.readUTF());
                 String nick = in.readUTF();
@@ -261,6 +269,7 @@ public final class AllInOneBungee extends Plugin implements Listener {
         PlayerRecord record = dataStore.get(uuid);
         if (record != null) sendSync(event.getServer(), uuid, record);
         sendNickState(event.getServer(), uuid);
+        sendPrankState(event.getServer(), uuid);
         if (authenticatedSessions.contains(uuid)
                 && event.getServer().getInfo().getName().equalsIgnoreCase(lobbyServer)) {
             sendAuthState(event.getServer(), uuid, "AUTHENTICATED");
@@ -272,6 +281,18 @@ public final class AllInOneBungee extends Plugin implements Listener {
         catch (IOException ex) { getLogger().log(Level.SEVERE, "Could not persist synchronized nick data.", ex); }
     }
 
+    private void sendPrankState(Server targetServer, UUID uuid) {
+        if (nickData == null) return;
+        String path = "players." + uuid + ".prank-enabled";
+        if (!nickData.contains(path)) return;
+        try {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            DataOutputStream out = new DataOutputStream(bytes);
+            out.writeUTF("PRANK_SYNC"); out.writeUTF(uuid.toString());
+            out.writeBoolean(nickData.getBoolean(path, true)); out.flush();
+            targetServer.sendData(channel, bytes.toByteArray());
+        } catch (IOException ex) { getLogger().log(Level.WARNING, "Could not send synchronized prank preference.", ex); }
+    }
     private void sendNickState(Server targetServer, UUID uuid) {
         if (nickData == null) return;
         String base = "players." + uuid;
