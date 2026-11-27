@@ -43,6 +43,8 @@ public final class AllInOneBungee extends Plugin implements Listener {
     private String lobbyServer = "lobby";
     private File premiumAccountsFile;
     private Configuration premiumAccounts;
+    private File nickFile;
+    private Configuration nickData;
 
     @Override public void onEnable() {
         if (!getDataFolder().exists() && !getDataFolder().mkdirs()) { getLogger().severe("Could not create plugin data folder."); return; }
@@ -69,6 +71,13 @@ public final class AllInOneBungee extends Plugin implements Listener {
                 ConfigurationProvider.getProvider(YamlConfiguration.class).save(emptyPremiumAccounts, premiumAccountsFile);
             }
             premiumAccounts = ConfigurationProvider.getProvider(YamlConfiguration.class).load(premiumAccountsFile);
+            nickFile = new File(getDataFolder(), "nicks.yml");
+            if (!nickFile.exists()) {
+                Configuration emptyNicks = new Configuration();
+                emptyNicks.set("players", new java.util.LinkedHashMap<String, Object>());
+                ConfigurationProvider.getProvider(YamlConfiguration.class).save(emptyNicks, nickFile);
+            }
+            nickData = ConfigurationProvider.getProvider(YamlConfiguration.class).load(nickFile);
             getProxy().registerChannel(channel);
             getProxy().registerChannel(AUTH_CHANNEL);
             getProxy().getPluginManager().registerListener(this, this);
@@ -78,6 +87,7 @@ public final class AllInOneBungee extends Plugin implements Listener {
     }
     @Override public void onDisable() {
         if (dataStore != null) try { dataStore.save(); } catch (IOException ex) { getLogger().log(Level.SEVERE, "Could not save player data.", ex); }
+        if (nickData != null && nickFile != null) try { ConfigurationProvider.getProvider(YamlConfiguration.class).save(nickData, nickFile); } catch (IOException ex) { getLogger().log(Level.SEVERE, "Could not save nick data.", ex); }
         if (channel != null) getProxy().unregisterChannel(channel);
         getProxy().unregisterChannel(AUTH_CHANNEL);
     }
@@ -96,6 +106,28 @@ public final class AllInOneBungee extends Plugin implements Listener {
             String operation = in.readUTF();
             if ("REQUEST_ALL".equals(operation)) {
                 if (in.available() == 0) getLogger().info("Accepted full-sync request from " + sourceName);
+                return;
+            }
+            if ("NICK_SET".equals(operation)) {
+                UUID uuid = UUID.fromString(in.readUTF());
+                String nick = in.readUTF();
+                String rankId = in.readUTF();
+                String skinName = in.readUTF();
+                if (!uuid.equals(carrier.getUniqueId()) || !nick.matches("[A-Za-z0-9_]{3,16}")
+                        || !rankId.matches("[a-zA-Z0-9_-]{1,32}") || !skinName.matches("[A-Za-z0-9_]{1,16}")
+                        || in.available() != 0) return;
+                String base = "players." + uuid;
+                nickData.set(base + ".nick", nick);
+                nickData.set(base + ".rank", rankId);
+                nickData.set(base + ".skin", skinName);
+                saveNickData();
+                return;
+            }
+            if ("NICK_CLEAR".equals(operation)) {
+                UUID uuid = UUID.fromString(in.readUTF());
+                if (!uuid.equals(carrier.getUniqueId()) || in.available() != 0) return;
+                nickData.set("players." + uuid, null);
+                saveNickData();
                 return;
             }
             if ("PLAYTIME_ADD".equals(operation)) {
@@ -228,12 +260,35 @@ public final class AllInOneBungee extends Plugin implements Listener {
         UUID uuid = event.getPlayer().getUniqueId();
         PlayerRecord record = dataStore.get(uuid);
         if (record != null) sendSync(event.getServer(), uuid, record);
+        sendNickState(event.getServer(), uuid);
         if (authenticatedSessions.contains(uuid)
                 && event.getServer().getInfo().getName().equalsIgnoreCase(lobbyServer)) {
             sendAuthState(event.getServer(), uuid, "AUTHENTICATED");
         }
     }
 
+    private void saveNickData() {
+        try { ConfigurationProvider.getProvider(YamlConfiguration.class).save(nickData, nickFile); }
+        catch (IOException ex) { getLogger().log(Level.SEVERE, "Could not persist synchronized nick data.", ex); }
+    }
+
+    private void sendNickState(Server targetServer, UUID uuid) {
+        if (nickData == null) return;
+        String base = "players." + uuid;
+        String nick = nickData.getString(base + ".nick");
+        if (nick == null || nick.isBlank()) return;
+        String rankId = nickData.getString(base + ".rank", "member");
+        String skinName = nickData.getString(base + ".skin", "Steve");
+        if (!nick.matches("[A-Za-z0-9_]{3,16}") || !rankId.matches("[a-zA-Z0-9_-]{1,32}")
+                || !skinName.matches("[A-Za-z0-9_]{1,16}")) return;
+        try {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            DataOutputStream out = new DataOutputStream(bytes);
+            out.writeUTF("NICK_SYNC"); out.writeUTF(uuid.toString()); out.writeUTF(nick);
+            out.writeUTF(rankId); out.writeUTF(skinName); out.flush();
+            targetServer.sendData(channel, bytes.toByteArray());
+        } catch (IOException ex) { getLogger().log(Level.WARNING, "Could not send synchronized nick state.", ex); }
+    }
     private void sendAuthState(Server targetServer, UUID uuid, String operation) {
         try {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
