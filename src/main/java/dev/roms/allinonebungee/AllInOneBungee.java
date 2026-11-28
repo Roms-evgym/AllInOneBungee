@@ -190,6 +190,9 @@ public final class AllInOneBungee extends Plugin implements Listener {
     @EventHandler public void onLogin(LoginEvent event) {
         String name = event.getConnection().getName();
         if (name == null) return;
+        // Floodgate has already authenticated this as a Bedrock identity. Bedrock
+        // players must not be blocked by Java premium-name reservations.
+        if (isFloodgatePlayer(event.getConnection().getUniqueId())) return;
         String reservedUuid = premiumAccounts.getString("names." + name.toLowerCase(Locale.ROOT) + ".uuid");
         if (reservedUuid == null) return;
 
@@ -206,6 +209,8 @@ public final class AllInOneBungee extends Plugin implements Listener {
     @EventHandler public void onPostLogin(PostLoginEvent event) {
         ProxiedPlayer player = event.getPlayer();
         UUID uuid = player.getUniqueId();
+        // Keep Floodgate identities separate from Java premium reservations.
+        if (isFloodgatePlayer(uuid)) return;
         UUID offlineUuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + player.getName()).getBytes(StandardCharsets.UTF_8));
         if (uuid.equals(offlineUuid)) return; // Offline/cracked identity: lobby password required.
         String key = "names." + player.getName().toLowerCase(Locale.ROOT);
@@ -230,6 +235,27 @@ public final class AllInOneBungee extends Plugin implements Listener {
         }
         authenticatedSessions.add(uuid);
         getLogger().info("Verified premium identity reserved: " + player.getName() + " (" + uuid + ")");
+    }
+
+    /**
+     * Uses Floodgate's own identity registry instead of guessing from a username
+     * prefix or from online-mode state. This keeps the exception limited to
+     * authenticated Bedrock players.
+     */
+    private boolean isFloodgatePlayer(UUID uuid) {
+        if (uuid == null) return false;
+        Plugin floodgate = getProxy().getPluginManager().getPlugin("floodgate");
+        if (floodgate == null) return false;
+        try {
+            ClassLoader loader = floodgate.getClass().getClassLoader();
+            Class<?> apiClass = loader.loadClass("org.geysermc.floodgate.api.FloodgateApi");
+            Object api = apiClass.getMethod("getInstance").invoke(null);
+            Object result = apiClass.getMethod("isFloodgatePlayer", UUID.class).invoke(api, uuid);
+            return Boolean.TRUE.equals(result);
+        } catch (ReflectiveOperationException | LinkageError ex) {
+            getLogger().log(Level.WARNING, "Could not verify Floodgate identity; premium-name protection remains enabled.", ex);
+            return false;
+        }
     }
 
     private void handleAuthMessage(PluginMessageEvent event) {
